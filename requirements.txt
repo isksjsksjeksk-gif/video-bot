@@ -1,0 +1,7 @@
+pyrogram==2.0.106
+tgcrypto==1.2.5
+aiohttp==3.10.10
+yt-dlp[default]>=2025.1.1
+curl-cffi>=0.7.4
+mutagen>=1.47.0
+Pillow>=10.4.0
