@@ -1,5 +1,0 @@
-pyrogram==2.0.106
-tgcrypto
-aiohttp
-yt-dlp[default]
-deno
