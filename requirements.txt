@@ -1,0 +1,3 @@
+pyrogram
+yt-dlp
+tgcrypto
