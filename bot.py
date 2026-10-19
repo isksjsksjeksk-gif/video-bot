@@ -1,25 +1,10 @@
 import os
 import asyncio
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import aiohttp
+from aiohttp import web
 import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-
-# --- ডামি ওয়েব সার্ভার হ্যান্ডলার ---
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Telegram Video Downloader Bot is Running 24/7!")
-        
-    def log_message(self, format, *args):
-        pass
-
-def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    print(f"Web server started on port {port}")
-    server.serve_forever()
 
 # --- টেলিগ্রাম বট কনফিগারেশন ---
 API_ID = 39912374  
@@ -123,12 +108,26 @@ async def reaction_handler(client, callback_query: CallbackQuery):
     elif action == "fire":
         await callback_query.answer("🔥 দারুণ রিঅ্যাকশন!", show_alert=False)
 
+# --- aiohttp দিয়ে হালকা ওয়েব সার্ভার (রেন্ডার পোর্টের জন্য) ---
+async def handle_web(request):
+    return web.Response(text="Telegram Video Downloader Bot is Active!")
+
+async def start_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server_app = web.Application()
+    server_app.router.add_get("/", handle_web)
+    runner = web.AppRunner(server_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server running on port {port}")
+
 async def main():
-    # ব্যাকগ্রাউন্ডে ওয়েব সার্ভার রান করা হলো যাতে রেন্ডার পোর্ট পেয়ে যায়
-    asyncio.get_running_loop().run_in_executor(None, run_server)
-    print("🤖 টেলিগ্রাম বট এবং ওয়েব সার্ভার সফলভাবে চালু হচ্ছে...")
+    # ওয়েব সার্ভার ও টেলিগ্রাম বট একসাথে স্টার্ট করা হলো
+    await start_web_server()
+    print("🤖 টেলিগ্রাম বট সফলভাবে চালু হচ্ছে...")
     await app.start()
-    # বটকে অলসভাবে চালু রাখার জন্য idle
+    
     from pyrogram import idle
     await idle()
     await app.stop()
