@@ -6,9 +6,30 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 
 import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+
+# --- ডামি ওয়েব সার্ভার (রেন্ডারের পোর্ট রিকোয়ারমেন্ট পূরণের জন্য) ---
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Telegram Video Downloader Bot is Running 24/7!")
+        
+    def log_message(self, format, *args):
+        pass # লিনাক্স কনসোলে অতিরিক্ত লগ কমানোর জন্য
+
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
+
+# সার্ভারটি ব্যাকগ্রাউন্ডে চালু করা হলো
+server_thread = threading.Thread(target=run_server, daemon=True)
+server_thread.start()
 
 # --- কনফিগারেশন ---
 API_ID = 39912374  
