@@ -13,7 +13,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 API_ID = int(os.environ.get("API_ID", "39912374"))
 API_HASH = os.environ.get("API_HASH", "6f21928259361f124863df3912790359")
 # 👇 নিচের "এখানে_বট_টোকেন_দিন" লেখাটা মুছে BotFather থেকে পাওয়া টোকেন বসান
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "এখানে_বট_টোকেন_দিন")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8972396687:AAFUr-W6sWuW4o1aJFwhEYG10D6NhGc4G84")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@sr_downloader_official")
 
 if BOT_TOKEN == "এখানে_বট_টোকেন_দিন":
