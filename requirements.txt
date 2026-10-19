@@ -1,0 +1,6 @@
+pyrogram
+yt-dlp
+tgcrypto
+pyaes
+pysocks
+aiohttp
