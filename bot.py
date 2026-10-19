@@ -13,7 +13,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 API_ID = int(os.environ.get("API_ID", "39912374"))
 API_HASH = os.environ.get("API_HASH", "6f21928259361f124863df3912790359")
 # 👇 নিচের "এখানে_বট_টোকেন_দিন" লেখাটা মুছে BotFather থেকে পাওয়া টোকেন বসান
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8972396687:AAFUr-W6sWuW4o1aJFwhEYG10D6NhGc4G84")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "এখানে_বট_টোকেন_দিন")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@sr_downloader_official")
 
 if BOT_TOKEN == "এখানে_বট_টোকেন_দিন":
@@ -22,6 +22,15 @@ _missing = [n for n, v in (("API_ID", API_ID), ("API_HASH", API_HASH), ("BOT_TOK
 if _missing:
     raise SystemExit("❌ এই Environment Variable গুলো সেট করা নেই: " + ", ".join(_missing))
 BOT_USERNAME_FALLBACK = "SRdownloader_bot"
+
+# --- ঐচ্ছিক সেটিংস (Render → Environment) ---
+# PROXY: রেসিডেনশিয়াল প্রক্সি, যেমন http://user:pass@host:port  (ইউটিউব ব্লক এড়াতে সবচেয়ে কার্যকর)
+# COBALT_API_URL / COBALT_API_KEY: ইউটিউব ব্যর্থ হলে ব্যাকআপ হিসেবে cobalt-সামঞ্জস্যপূর্ণ API
+# ADMIN_ID: আপনার টেলিগ্রাম ইউজার আইডি — ডাউনলোড ব্যর্থ হলে আসল এরর আপনাকে পাঠাবে
+PROXY = os.environ.get("PROXY", "").strip() or None
+COBALT_API_URL = os.environ.get("COBALT_API_URL", "").strip()
+COBALT_API_KEY = os.environ.get("COBALT_API_KEY", "").strip()
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0") or 0)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = "/tmp/downloads"
@@ -48,6 +57,14 @@ HIDDEN_PREFIX = "https://fid.local/"
 
 VIDEO_CACHE = {}   # post_id -> file_id
 pending_urls = {}  # user_id -> url (জয়েন ভেরিফাইয়ের পর প্রসেস হবে)
+pending_payload = {}  # user_id -> "v123" (চ্যানেল পোস্টের ডাউনলোড বাটন থেকে আসা)
+waiting_join = set()  # যাদের জয়েনের অপেক্ষায় আছি
+JOINED_AT = {}  # user_id -> সময় (দ্বিগুণ মেসেজ ঠেকাতে)
+YT_CLIENT_SETS = [
+    ["default", "tv", "mweb", "web_safari"],
+    ["android_vr", "tv"],
+    ["ios", "web_embedded"],
+]
 
 REACTIONS = [("like", "👍"), ("love", "❤️"), ("fire", "🔥")]
 USER_REACTIONS = {}  # (chat_id, msg_id) -> {user_id: kind}
@@ -81,7 +98,7 @@ def build_channel_markup(download_url, counts=None):
     ])
 
 
-def build_ydl_opts(out_template):
+def build_ydl_opts(out_template, yt_clients=None):
     opts = {
         # ffmpeg ছাড়াই চলে: অডিও+ভিডিও একসাথে আছে এমন ফাইল, ২GB এর নিচে
         "format": (
@@ -101,22 +118,84 @@ def build_ydl_opts(out_template):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                           "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
         },
-        "extractor_args": {"youtube": {"player_client": ["default", "tv", "mweb", "web_safari"]}},
+        "extractor_args": {"youtube": {"player_client": yt_clients or YT_CLIENT_SETS[0]}},
     }
     if COOKIE_FILE:
         opts["cookiefile"] = COOKIE_FILE
+    if PROXY:
+        opts["proxy"] = PROXY
     return opts
 
 
+def is_youtube(url):
+    return bool(re.search(r"(youtube\.com|youtu\.be)", url or ""))
+
+
 def download_video(url, uid):
-    """ব্লকিং ডাউনলোড — আলাদা থ্রেডে চলবে যাতে বট আটকে না যায়।"""
+    """ব্লকিং ডাউনলোড — আলাদা থ্রেডে চলবে। ইউটিউবে একাধিক ক্লায়েন্ট দিয়ে পরপর চেষ্টা করে।"""
     out_template = os.path.join(DOWNLOAD_DIR, f"{uid}.%(ext)s")
-    with yt_dlp.YoutubeDL(build_ydl_opts(out_template)) as ydl:
-        info = ydl.extract_info(url, download=True)
-    files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{uid}.*"))
-    files = [f for f in files if not f.endswith((".part", ".ytdl"))]
-    path = files[0] if files else None
+    sets = YT_CLIENT_SETS if is_youtube(url) else [None]
+    last_err = None
+    for clients in sets:
+        try:
+            with yt_dlp.YoutubeDL(build_ydl_opts(out_template, clients)) as ydl:
+                info = ydl.extract_info(url, download=True)
+            files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{uid}.*"))
+            files = [f for f in files if not f.endswith((".part", ".ytdl"))]
+            if files:
+                return info, files[0]
+            last_err = RuntimeError("ফাইল পাওয়া যায়নি")
+        except Exception as e:
+            last_err = e
+            print(f"⚠️ yt-dlp চেষ্টা ব্যর্থ (clients={clients}): {e}", flush=True)
+            cleanup(uid)
+    raise last_err or RuntimeError("ডাউনলোড ব্যর্থ")
+
+
+async def cobalt_download(url, uid):
+    """ব্যাকআপ: cobalt-সামঞ্জস্যপূর্ণ API দিয়ে ডাউনলোড (COBALT_API_URL সেট থাকলে)।"""
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if COBALT_API_KEY:
+        headers["Authorization"] = f"Api-Key {COBALT_API_KEY}"
+    path = os.path.join(DOWNLOAD_DIR, f"{uid}.mp4")
+    async with aiohttp.ClientSession() as sess:
+        async with sess.post(COBALT_API_URL.rstrip("/") + "/", json={"url": url, "videoQuality": "720"},
+                             headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as r:
+            data = await r.json(content_type=None)
+        status = data.get("status")
+        link = None
+        if status in ("tunnel", "redirect", "stream"):
+            link = data.get("url")
+        elif status == "picker":
+            link = next((x.get("url") for x in data.get("picker", []) if x.get("type", "video") == "video"), None)
+        if not link:
+            raise RuntimeError(f"cobalt ব্যর্থ: {str(data)[:300]}")
+        async with sess.get(link, timeout=aiohttp.ClientTimeout(total=900)) as r:
+            r.raise_for_status()
+            with open(path, "wb") as f:
+                async for chunk in r.content.iter_chunked(1 << 20):
+                    f.write(chunk)
+
+        info = {"title": "ভিডিও", "extractor_key": "YouTube" if is_youtube(url) else "Social Media"}
+        m = re.search(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})", url)
+        if m:
+            info["thumbnail"] = f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg"
+        try:
+            async with sess.get("https://www.youtube.com/oembed", params={"url": url, "format": "json"},
+                                timeout=aiohttp.ClientTimeout(total=15)) as r:
+                if r.status == 200:
+                    info["title"] = (await r.json(content_type=None)).get("title") or info["title"]
+        except Exception:
+            pass
     return info, path
+
+
+async def notify_admin(client, text):
+    if ADMIN_ID:
+        try:
+            await client.send_message(ADMIN_ID, text[:3500], disable_web_page_preview=True)
+        except Exception:
+            pass
 
 
 def extract_direct_link(url):
@@ -133,23 +212,35 @@ def cleanup(uid):
             pass
 
 
+MEMBER_CHECK_BROKEN = False  # বট অ্যাডমিন না হলে True হয়ে যায়
+
+
 async def is_member(client, user_id):
+    global MEMBER_CHECK_BROKEN
     try:
         member = await client.get_chat_member(CHANNEL_ID, user_id)
+        MEMBER_CHECK_BROKEN = False
         return member.status in (
             ChatMemberStatus.MEMBER,
             ChatMemberStatus.ADMINISTRATOR,
             ChatMemberStatus.OWNER,
         )
     except Exception as e:
-        # UserNotParticipant হলে জয়েন করেনি; অন্য এরর হলেও লগে দেখা যাবে
-        if "USER_NOT_PARTICIPANT" not in str(e).upper() and "UserNotParticipant" not in type(e).__name__:
-            print(f"⚠️ মেম্বারশিপ চেক সমস্যা: {e}", flush=True)
+        name = type(e).__name__
+        if "USER_NOT_PARTICIPANT" in str(e).upper() or "UserNotParticipant" in name:
+            MEMBER_CHECK_BROKEN = False
+            return False
+        MEMBER_CHECK_BROKEN = True
+        print(f"❌ মেম্বারশিপ চেক ব্যর্থ ({name}): {e} — বটকে চ্যানেলের Admin বানান!", flush=True)
+        await notify_admin(client, f"❌ মেম্বারশিপ চেক ব্যর্থ ({name}): {e}\nবটকে চ্যানেলের Admin বানান।")
         return False
 
 
 async def send_join_prompt(client, chat_id, payload=""):
     channel_link = f"https://t.me/{CHANNEL_ID.replace('@', '')}"
+    waiting_join.add(chat_id)
+    if payload:
+        pending_payload[chat_id] = payload
     cb = f"verify|{payload}" if payload else "verify"
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 চ্যানেলে জয়েন করুন", url=channel_link)],
@@ -159,7 +250,8 @@ async def send_join_prompt(client, chat_id, payload=""):
         chat_id,
         "🔒 **বটটি ব্যবহার করতে আগে আমাদের অফিশিয়াল চ্যানেলে জয়েন করতে হবে।**\n\n"
         "1️⃣ নিচের বাটনে চেপে চ্যানেলে জয়েন করুন\n"
-        "2️⃣ তারপর **ভেরিফাই করুন** বাটনে চাপ দিন",
+        "2️⃣ জয়েন করলেই আমি অটোমেটিক জানিয়ে দেব ✅\n"
+        "   (না এলে **ভেরিফাই করুন** বাটনে চাপ দিন)",
         reply_markup=markup,
     )
 
@@ -253,7 +345,13 @@ async def handle_link(client, chat_id, url):
     uid = f"{chat_id}_{abs(hash(url)) % 10**8}"
     processing_msg = await client.send_message(chat_id, "⏳ **ভিডিও ডাউনলোড হচ্ছে, দয়া করে একটু অপেক্ষা করুন...**")
     try:
-        info, path = await asyncio.to_thread(download_video, url, uid)
+        try:
+            info, path = await asyncio.to_thread(download_video, url, uid)
+        except Exception as first_err:
+            if not COBALT_API_URL:
+                raise
+            print(f"⚠️ yt-dlp ব্যর্থ, cobalt ব্যাকআপে যাচ্ছি: {first_err}", flush=True)
+            info, path = await cobalt_download(url, uid)
         if not path or not os.path.exists(path):
             raise RuntimeError("ফাইল পাওয়া যায়নি")
 
@@ -290,6 +388,7 @@ async def handle_link(client, chat_id, url):
 
     except Exception as e:
         print(f"❌ ডাউনলোড ব্যর্থ [{url}]: {e}", flush=True)
+        await notify_admin(client, f"❌ ডাউনলোড ব্যর্থ\n{url}\n\n{e}")
         try:
             info = await asyncio.to_thread(extract_direct_link, url)
             video_url = info.get("url")
@@ -308,7 +407,46 @@ async def handle_link(client, chat_id, url):
         cleanup(uid)
 
 
+async def after_join(client, uid, name="বন্ধু"):
+    """জয়েন নিশ্চিত হলে: সফল বার্তা → অপেক্ষমাণ কাজ → না থাকলে লিংক চাওয়া।"""
+    import time
+    if time.time() - JOINED_AT.get(uid, 0) < 20:
+        return  # অটো-ডিটেকশন আর ভেরিফাই বাটন একসাথে এলে একবারই চলবে
+    JOINED_AT[uid] = time.time()
+    waiting_join.discard(uid)
+    await client.send_message(uid, f"🎉 **ধন্যবাদ {name}! চ্যানেলে জয়েন সফল হয়েছে।**")
+    payload = pending_payload.pop(uid, "")
+    if payload.startswith("v") and payload[1:].isdigit():
+        await deliver_video(client, uid, int(payload[1:]))
+    elif uid in pending_urls:
+        await handle_link(client, uid, pending_urls.pop(uid))
+    else:
+        await client.send_message(uid, "🔗 **এবার যে ভিডিওটি ডাউনলোড করতে চান তার লিংকটি পাঠান।**")
+
+
+def is_our_channel(chat):
+    ch = str(CHANNEL_ID).lstrip("@").lower()
+    return (getattr(chat, "username", None) or "").lower() == ch or str(getattr(chat, "id", "")) == str(CHANNEL_ID)
+
+
 # ---------------- হ্যান্ডলার ----------------
+@app.on_chat_member_updated()
+async def channel_join_watcher(client, upd):
+    """কেউ চ্যানেলে জয়েন করলেই (বট চ্যানেলের Admin হলে) অটোমেটিক বটে ফিরিয়ে আনে।"""
+    try:
+        if not is_our_channel(upd.chat):
+            return
+        new = upd.new_chat_member
+        if not new or new.status != ChatMemberStatus.MEMBER:
+            return
+        uid = new.user.id
+        if uid not in waiting_join:
+            return
+        await after_join(client, uid, new.user.first_name)
+    except Exception as e:
+        print(f"⚠️ জয়েন ওয়াচার সমস্যা: {e}", flush=True)
+
+
 @app.on_message(filters.private & filters.command("start"))
 async def start_handler(client, message):
     if not message.from_user:
@@ -349,25 +487,22 @@ async def link_handler(client, message):
 async def verify_handler(client, cq: CallbackQuery):
     uid = cq.from_user.id
     if not await is_member(client, uid):
-        await cq.answer("❌ আপনি এখনো চ্যানেলে জয়েন করেননি! আগে জয়েন করুন।", show_alert=True)
+        if MEMBER_CHECK_BROKEN:
+            await cq.answer("⚠️ বটের সেটআপে সমস্যা আছে। অনুগ্রহ করে অ্যাডমিনকে জানান।", show_alert=True)
+        else:
+            await cq.answer("❌ আপনি এখনো চ্যানেলে জয়েন করেননি! আগে জয়েন করুন।", show_alert=True)
         return
 
     await cq.answer("✅ ভেরিফাই সফল হয়েছে!")
-    chat_id = cq.message.chat.id
     try:
         await cq.message.delete()
     except Exception:
         pass
 
     parts = cq.data.split("|", 1)
-    payload = parts[1] if len(parts) > 1 else ""
-
-    if payload.startswith("v") and payload[1:].isdigit():
-        await deliver_video(client, chat_id, int(payload[1:]))
-    elif uid in pending_urls:
-        await handle_link(client, chat_id, pending_urls.pop(uid))
-    else:
-        await send_welcome(client, chat_id, cq.from_user.first_name)
+    if len(parts) > 1 and parts[1]:
+        pending_payload[uid] = parts[1]
+    await after_join(client, uid, cq.from_user.first_name)
 
 
 @app.on_callback_query(filters.regex(r"^react_(like|love|fire)$"))
