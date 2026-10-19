@@ -12,7 +12,7 @@ import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# --- ডামি ওয়েব সার্ভার (রেন্ডারের পোর্ট রিকোয়ারমেন্ট পূরণের জন্য) ---
+# --- ডামি ওয়েব সার্ভার (মেইন থ্রেডে চলবে যাতে রেন্ডার পোর্ট সাথে সাথে পায়) ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -20,18 +20,15 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Telegram Video Downloader Bot is Running 24/7!")
         
     def log_message(self, format, *args):
-        pass # লিনাক্স কনসোলে অতিরিক্ত লগ কমানোর জন্য
+        pass # কনসোলে অতিরিক্ত লগ কমানোর জন্য
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    print(f"Web server started on port {port}")
     server.serve_forever()
 
-# সার্ভারটি ব্যাকগ্রাউন্ডে চালু করা হলো
-server_thread = threading.Thread(target=run_server, daemon=True)
-server_thread.start()
-
-# --- কনফিগারেশন ---
+# --- টেলিগ্রাম বট কনফিগারেশন ---
 API_ID = 39912374  
 API_HASH = "6f21928259361f124863df3912790359"  
 BOT_TOKEN = "8972396687:AAFUr-W6sWuW4o1aJFwhEYG10D6NhGc4G84"  
@@ -134,5 +131,10 @@ async def reaction_handler(client, callback_query: CallbackQuery):
         await callback_query.answer("🔥 দারুণ রিঅ্যাকশন!", show_alert=False)
 
 if __name__ == "__main__":
-    print("🤖 ভিডিও ডাউনলোডার বট সফলভাবে চালু হচ্ছে...")
-    app.run()
+    print("🤖 টেলিগ্রাম বট ব্যাকগ্রাউন্ডে চালু করা হচ্ছে...")
+    # বটকে ব্যাকগ্রাউন্ড থ্রেডে রান করা হলো
+    bot_thread = threading.Thread(target=app.run, daemon=True)
+    bot_thread.start()
+    
+    # ওয়েব সার্ভারকে মেইন থ্রেডে রান করা হলো (যাতে রেন্ডার পোর্ট সাথে সাথে পায়)
+    run_server()
