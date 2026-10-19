@@ -126,17 +126,27 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"Web server running on port {port}")
+    print(f"Web server running on port {port}", flush=True)
 
 async def main():
-    # ওয়েব সার্ভার ও টেলিগ্রাম বট একসাথে স্টার্ট করা হলো
+    # ওয়েব সার্ভার ও টেলিগ্রাম বট একসাথে স্টার্ট করা হলো
     await start_web_server()
-    print("🤖 টেলিগ্রাম বট সফলভাবে চালু হচ্ছে...")
-    await app.start()
-    
+    print("🤖 টেলিগ্রাম বট চালু হচ্ছে...", flush=True)
+    try:
+        await app.start()
+        me = await app.get_me()
+        print(f"✅ বট চালু হয়েছে: @{me.username}", flush=True)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ বট চালু করতে সমস্যা: {e}", flush=True)
+        raise
+
     from pyrogram import idle
     await idle()
     await app.stop()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Pyrogram Client যে event loop-এ তৈরি হয়েছে, সেই loop-ই ব্যবহার করতে হবে
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
