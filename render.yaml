@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-video-downloader
+    env: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
+      - key: COOKIES
+        sync: false
