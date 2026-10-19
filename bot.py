@@ -1,18 +1,11 @@
-import asyncio
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
 import os
-import threading
+import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-# --- ডামি ওয়েব সার্ভার (মেইন থ্রেডে চলবে যাতে রেন্ডার পোর্ট সাথে সাথে পায়) ---
+# --- ডামি ওয়েব সার্ভার হ্যান্ডলার ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -20,7 +13,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Telegram Video Downloader Bot is Running 24/7!")
         
     def log_message(self, format, *args):
-        pass # কনসোলে অতিরিক্ত লগ কমানোর জন্য
+        pass
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -130,11 +123,15 @@ async def reaction_handler(client, callback_query: CallbackQuery):
     elif action == "fire":
         await callback_query.answer("🔥 দারুণ রিঅ্যাকশন!", show_alert=False)
 
+async def main():
+    # ব্যাকগ্রাউন্ডে ওয়েব সার্ভার রান করা হলো যাতে রেন্ডার পোর্ট পেয়ে যায়
+    asyncio.get_running_loop().run_in_executor(None, run_server)
+    print("🤖 টেলিগ্রাম বট এবং ওয়েব সার্ভার সফলভাবে চালু হচ্ছে...")
+    await app.start()
+    # বটকে অলসভাবে চালু রাখার জন্য idle
+    from pyrogram import idle
+    await idle()
+    await app.stop()
+
 if __name__ == "__main__":
-    print("🤖 টেলিগ্রাম বট ব্যাকগ্রাউন্ডে চালু করা হচ্ছে...")
-    # বটকে ব্যাকগ্রাউন্ড থ্রেডে রান করা হলো
-    bot_thread = threading.Thread(target=app.run, daemon=True)
-    bot_thread.start()
-    
-    # ওয়েব সার্ভারকে মেইন থ্রেডে রান করা হলো (যাতে রেন্ডার পোর্ট সাথে সাথে পায়)
-    run_server()
+    asyncio.run(main())
